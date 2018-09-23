@@ -1,6 +1,7 @@
-import httplib2, base64
+import httplib2, base64, email
 from email.MIMEText import MIMEText
 from apiclient.discovery import build
+from apiclient import errors
 from oauth2client import tools
 from oauth2client.file import Storage
 from oauth2client.client import flow_from_clientsecrets
@@ -25,6 +26,12 @@ class Google:
         self.user_info = None
         self.credentials = None
 
+        http = self.credentials.authorize(httplib2.Http())
+        self.gmail = build(serviceName='gmail', version='v1', http=http,cache_discovery=False)
+        self.googlesheets = None  # Build in method if needed
+
+        self.resultSizeEstimate = None # Set in search method
+
     def authenticate(self):
         flow = flow_from_clientsecrets('client_secret.json', scope=' '.join(self.scopes))
         storage = Storage('creds.data')
@@ -48,7 +55,7 @@ class Google:
 
         self.user_info = self._get_user_info()
         self.authenticated = True
-        logging.info('%s (%s) authenticated.'%(self.user_info['name'],self.user_info['email']))
+        logging.debug('%s (%s) authenticated.'%(self.user_info['name'],self.user_info['email']))
 
     def _get_user_info(self):
         """Send a request to the UserInfo API to retrieve the user's information.
@@ -68,19 +75,18 @@ class Google:
 
     def get_spreadsheet(self,fileName=None,fileId=None,fileURL=None):
         import gspread
-        gc = gspread.authorize(self.credentials)
+        if not self.googlesheets:
+            self.googlesheets = gspread.authorize(self.credentials)
         if fileName is not None:
-            sh = gc.open(fileName)
+            sh = self.googlesheets.open(fileName)
         elif fileId is not None:
-            sh = gc.open_by_key(fileId)
+            sh = self.googlesheets.open_by_key(fileId)
         elif fileURL is not None:
-            sh = gc.open_by_url(fileURL)
+            sh = self.googlesheets.open_by_url(fileURL)
         return sh
 
     def email(self,to,msg,subject,cc=None):
         # Send mail from current user's gmail default address (can't seem to change that)
-        http = self.credentials.authorize(httplib2.Http())
-        email_service = build(serviceName='gmail', version='v1', http=http,cache_discovery=False)
         if type(to)==list or type(to)==tuple:
             to = ', '.join(to)
         message = MIMEText(msg)
@@ -91,8 +97,69 @@ class Google:
             message['cc'] = cc
         message['subject'] = subject
         message = {'raw':base64.urlsafe_b64encode(message.as_string())}
-        message = (email_service.users().messages().send(userId="me", body=message).execute())
+        try:
+            message = (self.gmail.users().messages().send(userId="me", body=message).execute())
+        except errors.HttpError, error:
+            raise GoogleError(error)
         return message
+
+    def GetMessage(self, msg_id):
+        """Get a Message with given ID.
+
+        Args:
+          service: Authorized Gmail API service instance.
+          user_id: User's email address. The special value "me"
+          can be used to indicate the authenticated user.
+          msg_id: The ID of the Message required.
+
+        Returns:
+          A Message.
+        """
+        try:
+            message = self.gmail.users().messages().get(userId='me', id=msg_id).execute()
+            return message
+        except errors.HttpError, error:
+            raise GoogleError(error)
+
+    def GetMimeMessage(self,msg_id):
+        """Get a Message and use it to create a MIME Message.
+
+        Args:
+          service: Authorized Gmail API service instance.
+          user_id: User's email address. The special value "me"
+          can be used to indicate the authenticated user.
+          msg_id: The ID of the Message required.
+
+        Returns:
+          A MIME Message, consisting of data from Message.
+        """
+        try:
+            message = self.gmail.users().messages().get(userId='me', id=msg_id,format='raw').execute()
+            msg_str = base64.urlsafe_b64decode(message['raw'].encode('ASCII'))
+            mime_msg = email.message_from_string(msg_str)
+            return mime_msg
+        except errors.HttpError, error:
+            raise GoogleError(error)
+
+    def search(self,query):
+        try:
+            response = self.gmail.users().messages().list(userId='me',q=query).execute()
+            self.resultSizeEstimate = response['resultSizeEstimate']
+            messages = []
+            for msg in response['messages']:
+                yield msg
+            while 'nextPageToken' in response:
+                page_token = response['nextPageToken']
+                response = self.gmail.users().messages().list(userId=user_id, q=query,
+                                                     pageToken=page_token).execute()
+                self.resultSizeEstimate = response['resultSizeEstimate']
+                for msg in response['messages']:
+                    yield msg
+                
+        except errors.HttpError, error:
+            raise GoogleError(error)
+        finally:
+            self.resultSizeEstimate = None
 
 if __name__ == '__main__':
     g = Google()

@@ -70,11 +70,10 @@ if __name__ == '__main__':
     g.authenticate()
     http = g.credentials.authorize(httplib2.Http())
     service = build(serviceName='gmail', version='v1', http=http,cache_discovery=False)
-    messages = service.search(query)
+    messages = search(service,query)
     date = []
     title = []
     abstract = []
-
     exp = re.compile('^\\*(.*)\\*',re.M)
     for msg in messages:
         try:
