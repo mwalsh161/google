@@ -26,8 +26,7 @@ class Google:
         self.user_info = None
         self.credentials = None
 
-        http = self.credentials.authorize(httplib2.Http())
-        self.gmail = build(serviceName='gmail', version='v1', http=http,cache_discovery=False)
+        self.gmail = None  # Build in authenticate method        
         self.googlesheets = None  # Build in method if needed
 
         self.resultSizeEstimate = None # Set in search method
@@ -55,6 +54,8 @@ class Google:
 
         self.user_info = self._get_user_info()
         self.authenticated = True
+        http = self.credentials.authorize(httplib2.Http())
+        self.gmail = build(serviceName='gmail', version='v1', http=http,cache_discovery=False)
         logging.debug('%s (%s) authenticated.'%(self.user_info['name'],self.user_info['email']))
 
     def _get_user_info(self):
@@ -146,11 +147,12 @@ class Google:
             response = self.gmail.users().messages().list(userId='me',q=query).execute()
             self.resultSizeEstimate = response['resultSizeEstimate']
             messages = []
-            for msg in response['messages']:
-                yield msg
+            if 'messages' in response:
+                for msg in response['messages']:
+                    yield msg
             while 'nextPageToken' in response:
                 page_token = response['nextPageToken']
-                response = self.gmail.users().messages().list(userId=user_id, q=query,
+                response = self.gmail.users().messages().list(userId='me', q=query,
                                                      pageToken=page_token).execute()
                 self.resultSizeEstimate = response['resultSizeEstimate']
                 for msg in response['messages']:
