@@ -5,7 +5,9 @@ from apiclient import errors
 from oauth2client import tools
 from oauth2client.file import Storage
 from oauth2client.client import flow_from_clientsecrets
-import logging
+import logging, os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class GoogleError(Exception):
     def __init__(self, message):
@@ -26,14 +28,14 @@ class Google:
         self.user_info = None
         self.credentials = None
 
-        self.gmail = None  # Build in authenticate method        
+        self.gmail = None  # Build in authenticate method
         self.googlesheets = None  # Build in method if needed
 
         self.resultSizeEstimate = None # Set in search method
 
     def authenticate(self):
-        flow = flow_from_clientsecrets('client_secret.json', scope=' '.join(self.scopes))
-        storage = Storage('creds.data')
+        flow = flow_from_clientsecrets(os.path.join(BASE_DIR,'client_secret.json'), scope=' '.join(self.scopes))
+        storage = Storage(os.path.join(BASE_DIR,'creds.data'))
         self.credentials = storage.get()
         # If no credentials are found or the credentials are invalid due to
         # expiration, new credentials need to be obtained from the authorization
@@ -157,7 +159,7 @@ class Google:
                 self.resultSizeEstimate = response['resultSizeEstimate']
                 for msg in response['messages']:
                     yield msg
-                
+
         except errors.HttpError, error:
             raise GoogleError(error)
         finally:
