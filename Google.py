@@ -1,5 +1,6 @@
 import httplib2, base64, email
-from email.MIMEText import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from apiclient.discovery import build
 from apiclient import errors
 from oauth2client import tools
@@ -88,19 +89,36 @@ class Google:
             sh = self.googlesheets.open_by_url(fileURL)
         return sh
 
-    def email(self,to,msg,subject,cc=None):
+    def email(self,to,msg,subject,cc=None,html_msg=None):
         # Send mail from current user's gmail default address (can't seem to change that)
         if type(to)==list or type(to)==tuple:
             to = ', '.join(to)
-        message = MIMEText(msg)
+        # Prepare payload
+        if html_msg:
+            message = MIMEMultipart('alternative')
+
+            mt = MIMEText(None,'plain','utf-8')
+            mt.replace_header('content-transfer-encoding', 'quoted-printable')
+            mt.set_payload(msg.encode('utf-8'))
+            message.attach(mt)
+
+            mt = MIMEText(None,'html','utf-8')
+            mt.replace_header('content-transfer-encoding', 'quoted-printable')
+            mt.set_payload(html_msg.encode('utf-8'))
+            message.attach(mt)
+        else:
+            message = MIMEText(msg,'plain','utf-8')
+        # Prepare subject, to and cc
         message['to'] = to
         if cc:
             if type(cc)==list or type(cc)==tuple:
                 cc = ', '.join(cc)
             message['cc'] = cc
         message['subject'] = subject
+        # Encode and send to gmail servers
         message = {'raw':base64.urlsafe_b64encode(message.as_string())}
         try:
+            pass
             message = (self.gmail.users().messages().send(userId="me", body=message).execute())
         except errors.HttpError, error:
             raise GoogleError(error)
