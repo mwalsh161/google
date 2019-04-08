@@ -59,7 +59,10 @@ class Google:
         self.authenticated = True
         http = self.credentials.authorize(httplib2.Http())
         self.gmail = build(serviceName='gmail', version='v1', http=http,cache_discovery=False)
-        logging.debug('%s (%s) authenticated.'%(self.user_info['name'],self.user_info['email']))
+        if 'name' in self.user_info:
+            logging.debug('%s (%s) authenticated.'%(self.user_info['name'],self.user_info['email']))
+        else:
+            logging.debug('%s authenticated.'%(self.user_info['email']))
 
     def _get_user_info(self):
         """Send a request to the UserInfo API to retrieve the user's information.
@@ -89,7 +92,7 @@ class Google:
             sh = self.googlesheets.open_by_url(fileURL)
         return sh
 
-    def email(self,to,msg,subject,cc=None,html_msg=None):
+    def CreateMessage(self,to,msg,subject,cc=None,html_msg=None):
         # Send mail from current user's gmail default address (can't seem to change that)
         if type(to)==list or type(to)==tuple:
             to = ', '.join(to)
@@ -116,9 +119,22 @@ class Google:
             message['cc'] = cc
         message['subject'] = subject
         # Encode and send to gmail servers
-        message = {'raw':base64.urlsafe_b64encode(message.as_string())}
+        return {'raw':base64.urlsafe_b64encode(message.as_string())}
+
+    def CreateDraft(self,message,threadId=None):
+        assert self.authenticated, Exception('Authenticate google first!')
         try:
-            pass
+            message = {'message': message}
+            if threadId:
+                message['threadId'] = threadId
+            draft = self.gmail.users().drafts().create(userId="me", body=message).execute()
+        except errors.HttpError, error:
+            raise GoogleError(error)
+        return draft
+
+    def SendMessage(self,message):
+        assert self.authenticated, Exception('Authenticate google first!')
+        try:
             message = (self.gmail.users().messages().send(userId="me", body=message).execute())
         except errors.HttpError, error:
             raise GoogleError(error)
@@ -136,6 +152,7 @@ class Google:
         Returns:
           A Message.
         """
+        assert self.authenticated, Exception('Authenticate google first!')
         try:
             message = self.gmail.users().messages().get(userId='me', id=msg_id).execute()
             return message
@@ -154,6 +171,7 @@ class Google:
         Returns:
           A MIME Message, consisting of data from Message.
         """
+        assert self.authenticated, Exception('Authenticate google first!')
         try:
             message = self.gmail.users().messages().get(userId='me', id=msg_id,format='raw').execute()
             msg_str = base64.urlsafe_b64decode(message['raw'].encode('ASCII'))
@@ -163,6 +181,8 @@ class Google:
             raise GoogleError(error)
 
     def search(self,query):
+        # Generator that will keep yielding results and fetching more chunks when needed
+        assert self.authenticated, Exception('Authenticate google first!')
         try:
             response = self.gmail.users().messages().list(userId='me',q=query).execute()
             self.resultSizeEstimate = response['resultSizeEstimate']
